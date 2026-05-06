@@ -42,3 +42,30 @@ Picked depth-first to keep commits coherent: BR-001 → BR-002 → BR-004 → SE
 - **Hardcoding the rules in Python** with a config flag for the window only. Rejected — README explicitly asks for a configurable engine.
 
 **Tests added:** six new tests covering final-sale items (existing suite didn't), the `matched_rule` identifier contract (stable string out, empty when returnable), first-match-wins ordering with two competing rules in `tmp_path`, custom-rules-file support, and `now`-injection for deterministic window tests.
+
+## BR-004 — per-category return windows
+
+**Decision:** Add an optional `category_windows: dict[str, int] | None` field to `ReturnWindowRule`. The window for an article is `category_windows.get(article.category, days)`; `days` is the order-level default. Reason text supports `{days}` interpolation so the customer-facing message reflects the *resolved* window, not the default.
+
+**Why one rule, not many:** The README phrasing ("fall back to the order-level default when a category isn't configured") describes a *single policy* with overrides, not multiple competing policies. Modelling it as one rule keeps "fall back" as a `dict.get`, not a function of YAML ordering. Multiple `return_window` rules with `category:` filters would have worked, but ordering becomes load-bearing — a misplaced default-rule silently breaks the policy. Single-rule is the smaller blast radius.
+
+**Reason templating** lives on a new `reason_for(article)` method on the `_Rule` base (default: returns `self.reason` unchanged). Only `ReturnWindowRule` overrides it. This keeps the polymorphism explicit; rules without dynamic data don't have to think about formatting.
+
+**Schema constraints I added while here:**
+- `days: int = Field(ge=1)` — `-7` or `0` fails at load time.
+- `category_windows: dict[str, Annotated[int, Field(ge=1)]] | None` — symmetric validation; per-category overrides can't sneak past as `-7`.
+- `model_config = ConfigDict(extra="forbid", frozen=True)` on `_Rule`. `extra="forbid"` makes typo'd YAML keys (e.g. `categori_windows:`) fail loudly instead of silently no-op'ing. `frozen=True` means the cached `RulesConfig` (shared across requests via `@functools.cache`) can't be mutated by a misbehaving caller.
+- `@field_validator("category_windows")` rejects uppercase keys at load time. The lowercase invariant was previously documented-only; without enforcement, `Electronics: 14` silently misses the lookup. Fail-loud > silently auto-lowercase, since auto-lowercasing hides config drift.
+
+All four pinned by tests in `TestCustomRulesConfig`.
+
+**Lowercase invariant:** `category_windows` keys must be lowercase to match the mapper's normalised `Article.category` (BR-001 decision). Documented inline in both the rule model and the YAML comment; not auto-lowercased on load — the YAML is canonical and a typo should fail loudly via "key didn't match", not silently via case mismatch.
+
+**Empty category falls back to default:** `dict.get("", 30)` → 30. Pinned in `test_empty_category_falls_back_to_default`.
+
+**Alternatives considered:**
+- **Multiple `return_window` rules with a `category:` filter.** Rejected — order-dependent.
+- **Top-level `return_windows: {default, electronics, ...}` separate from `rules:`.** Rejected — splits one policy across two config locations and breaks rule self-containment.
+- **No interpolation; one fixed reason string.** Rejected — message would lie when a category window fires ("30-day window expired" while electronics actually has a 14-day window).
+
+**Tests added:** eight tests covering category-override applies (electronics 14 < default 30), unmapped category falls back to default, empty category falls back to default, multi-article order where two categories resolve to different windows in the same evaluation, plus four pinning the validation contract (`days: -7`, per-category `electronics: -7`, uppercase key `Electronics:`, and a typo'd field name all raise `ValidationError`).

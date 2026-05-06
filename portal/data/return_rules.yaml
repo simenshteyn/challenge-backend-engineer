@@ -7,10 +7,13 @@
 #   fully_returned  – every unit has already been returned
 #   digital         – the item is a digital good
 #   final_sale      – the item was sold as final-sale
-#   return_window   – delivery date is older than `days`
+#   return_window   – delivery date is older than `days`; supports
+#                     per-category overrides via `category_windows`,
+#                     keys lowercased to match Article.category.
 #
 # `reason` is shown to the customer; `type` is also surfaced as
-# `matched_rule` for support tooling.
+# `matched_rule` for support tooling.  In `return_window`, `{days}`
+# in the reason interpolates the resolved window for the article.
 
 rules:
   - type: fully_returned
@@ -23,5 +26,9 @@ rules:
     reason: "Final-sale items cannot be returned."
 
   - type: return_window
-    days: 30
-    reason: "The 30-day return window has expired."
+    days: 30  # default fallback when category isn't listed below
+    category_windows:
+      electronics: 14
+      apparel: 30
+      footwear: 14
+    reason: "The {days}-day return window has expired."

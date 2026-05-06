@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from portal.types import Article, ArticleEligibility, Order
 
@@ -26,10 +26,19 @@ _DEFAULT_RULES_PATH = (
 class _Rule(BaseModel):
     """Common fields shared by every rule."""
 
+    # `extra="forbid"`: typo'd YAML keys fail loudly at load time.
+    # `frozen=True`: cached `RulesConfig` is shared across requests; freezing
+    # prevents accidental mutation from leaking between callers.
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
     reason: str
 
     def matches(self, article: Article, order: Order, now: datetime) -> bool:
         raise NotImplementedError
+
+    def reason_for(self, article: Article) -> str:
+        """Reason text for *article*. Override to interpolate dynamic values."""
+        return self.reason
 
 
 class FullyReturnedRule(_Rule):
@@ -55,10 +64,35 @@ class FinalSaleRule(_Rule):
 
 class ReturnWindowRule(_Rule):
     type: Literal["return_window"]
-    days: int
+    days: int = Field(ge=1)
+    # Per-category overrides. Keys must be lowercase to match the mapper's
+    # normalised `Article.category`. Falls back to `days` when absent.
+    category_windows: dict[str, Annotated[int, Field(ge=1)]] | None = None
+
+    @field_validator("category_windows")
+    @classmethod
+    def _keys_must_be_lowercase(
+        cls, value: dict[str, int] | None
+    ) -> dict[str, int] | None:
+        if value is None:
+            return value
+        bad = [k for k in value if k != k.lower()]
+        if bad:
+            raise ValueError(
+                f"category_windows keys must be lowercase, got: {bad!r}"
+            )
+        return value
+
+    def _window_for(self, article: Article) -> int:
+        if self.category_windows is None:
+            return self.days
+        return self.category_windows.get(article.category, self.days)
 
     def matches(self, article: Article, order: Order, now: datetime) -> bool:
-        return now - order.delivery_date > timedelta(days=self.days)
+        return now - order.delivery_date > timedelta(days=self._window_for(article))
+
+    def reason_for(self, article: Article) -> str:
+        return self.reason.format(days=self._window_for(article))
 
 
 Rule = Annotated[
@@ -109,7 +143,7 @@ def _evaluate_article(
             return ArticleEligibility(
                 article=article,
                 returnable=False,
-                reason=rule.reason,
+                reason=rule.reason_for(article),
                 matched_rule=rule.type,
             )
     return ArticleEligibility(

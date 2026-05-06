@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TypedDict, Unpack
 
+import pytest
+from pydantic import ValidationError
+
 from portal.services.eligibility import evaluate_eligibility
 from portal.types import Article, Order
 
@@ -211,6 +214,151 @@ class TestCustomRulesConfig:
         result = evaluate_eligibility(order, rules_path=rules_file)[0]
         assert result.returnable is False
         assert result.matched_rule == "return_window"
+
+    def test_category_specific_window_applies(self, tmp_path: Path) -> None:
+        """An item in a category with a shorter window expires sooner."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      electronics: 14\n"
+            "    reason: 'expired ({days} days)'\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=20),
+            articles=[_make_article(category="electronics")],
+        )
+        result = evaluate_eligibility(order, rules_path=rules_file)[0]
+        assert result.returnable is False
+        assert "14" in result.reason
+
+    def test_unmapped_category_falls_back_to_default(
+        self, tmp_path: Path
+    ) -> None:
+        """Categories not listed in `category_windows` use the default `days`."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      electronics: 14\n"
+            "    reason: 'expired ({days} days)'\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=20),
+            articles=[_make_article(category="apparel")],
+        )
+        result = evaluate_eligibility(order, rules_path=rules_file)[0]
+        # 20 days ago, default 30-day window — still returnable
+        assert result.returnable is True
+
+    def test_empty_category_falls_back_to_default(self, tmp_path: Path) -> None:
+        """Articles the mapper couldn't categorise still get the default."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      electronics: 14\n"
+            "    reason: 'expired ({days} days)'\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=40),
+            articles=[_make_article(category="")],
+        )
+        result = evaluate_eligibility(order, rules_path=rules_file)[0]
+        # No category override, default 30-day window, 40 days ago — expired
+        assert result.returnable is False
+        assert "30" in result.reason
+
+    def test_category_override_inside_short_window_is_returnable(
+        self, tmp_path: Path
+    ) -> None:
+        """An apparel item 20 days post-delivery with a 30-day window stays
+        returnable even if a sibling category has a shorter window."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      electronics: 14\n"
+            "      apparel: 60\n"
+            "    reason: 'expired ({days} days)'\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=45),
+            articles=[
+                _make_article(category="apparel"),
+                _make_article(category="electronics"),
+            ],
+        )
+        results = evaluate_eligibility(order, rules_path=rules_file)
+        assert results[0].returnable is True  # apparel: 60-day window
+        assert results[1].returnable is False  # electronics: 14-day, 45 ago
+        assert "14" in results[1].reason
+
+    def test_negative_days_rejected(self, tmp_path: Path) -> None:
+        """`days` must be >= 1 — a negative window is almost always a typo."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: -7\n"
+            "    reason: x\n"
+        )
+        order = _make_order(articles=[_make_article()])
+        with pytest.raises(ValidationError):
+            evaluate_eligibility(order, rules_path=rules_file)
+
+    def test_negative_category_window_rejected(self, tmp_path: Path) -> None:
+        """Per-category overrides must also be >= 1."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      electronics: -7\n"
+            "    reason: x\n"
+        )
+        order = _make_order(articles=[_make_article()])
+        with pytest.raises(ValidationError):
+            evaluate_eligibility(order, rules_path=rules_file)
+
+    def test_uppercase_category_key_rejected(self, tmp_path: Path) -> None:
+        """Mapper normalises to lowercase — config must match."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    category_windows:\n"
+            "      Electronics: 14\n"  # capital E — would silently miss
+            "    reason: x\n"
+        )
+        order = _make_order(articles=[_make_article()])
+        with pytest.raises(ValidationError):
+            evaluate_eligibility(order, rules_path=rules_file)
+
+    def test_unknown_key_rejected(self, tmp_path: Path) -> None:
+        """A typo'd field should fail loudly, not silently no-op."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    categori_windows:\n"  # typo of category_windows
+            "      electronics: 14\n"
+            "    reason: x\n"
+        )
+        order = _make_order(articles=[_make_article()])
+        with pytest.raises(ValidationError):
+            evaluate_eligibility(order, rules_path=rules_file)
 
     def test_now_override(self, tmp_path: Path) -> None:
         """An injected `now` lets us test windows deterministically."""
