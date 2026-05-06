@@ -6,6 +6,8 @@
                 id="item-{{ forloop.counter }}"
                 class="item-checkbox"
                 {% if row.selectable %}
+                    name="selected"
+                    value="{{ row.result.article.sku }}"
                     x-model="selected['{{ row.result.article.sku|escapejs }}']"
                 {% else %}
                     disabled
@@ -41,6 +43,7 @@
                 id="qty-{{ forloop.counter }}"
                 class="qty-select"
                 {% if row.selectable %}
+                    name="qty_{{ row.result.article.sku }}"
                     :disabled="!selected['{{ row.result.article.sku|escapejs }}']"
                 {% else %}
                     disabled

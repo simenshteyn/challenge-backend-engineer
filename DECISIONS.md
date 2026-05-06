@@ -147,3 +147,25 @@ The following are real concerns but are intentionally **not** part of SEC-001 �
 **Tests added (4):** `test_no_filter_shows_all_articles`, `test_returnable_only_hides_non_returnable`, `test_htmx_request_returns_partial` (asserts `<html>` and page chrome are absent, article cards present), `test_htmx_request_with_filter` (combined contract).
 
 **Setup gotcha for fresh checkouts.** The README's quickstart goes `uv sync` → `pytest` → `runserver`, but the `runserver` flow uses Django sessions and the SQLite DB has never been migrated, so the first POST to `/returns/` raises `OperationalError: no such table: django_session`. `pytest` doesn't hit this because pytest-django builds the test DB from migrations on every run. Reviewers will need `uv run python manage.py migrate` once before `runserver`. Not a regression introduced by FR-001 — the same gap exists on `main` — but FR-001 is the first task that actually exercises sessions in the browser, so it surfaced here.
+
+## FR-002 — return submission flow
+
+**Decision:** Three views (`ArticlesView.post`, `ConfirmView`, `SuccessView`), POST-Redirect-GET pattern, selection carried between steps via `request.session["return_selection"]`. Articles → `/confirm/` → `/success/`, with each step idempotent on refresh.
+
+**No domain model.** The README asks for an end-to-end flow, not a returns persistence layer — and the repo has no model, no DB usage besides sessions, and no upstream API to call. `ConfirmView.post` is fire-and-forget: it clears `return_selection` from the session and redirects. A real implementation would persist a Return aggregate and kick off a workflow; that's out of scope and intentionally so.
+
+**Re-validate selection on the server, every time.** This is the SEC-001 lesson applied a second time: the form's submitted SKU/qty pairs are filtered against a freshly-evaluated `selectable` map (re-running `evaluate_eligibility(order)`), and qty is clamped to `[1, remaining_qty]`. A tampered POST that injects a non-returnable SKU is silently dropped — pinned in `test_post_articles_drops_non_selectable_sku`. Silent drop > 400 error, because the form layer prevents it for honest users; a tampered submission that filters down to "nothing valid" simply redirects back to articles.
+
+**SKU-keyed form fields, not indexed.** Builds on the FR-001 SKU-keying decision: `name="selected" value="<sku>"` for checkboxes, `name="qty_<sku>"` for the qty selects. Server reads `request.POST.getlist("selected")` (multi-value) and `request.POST.get(f"qty_{sku}")`. Stable identifiers across the filter→select→submit sequence.
+
+**Cancel preserves selection.** The Cancel button on the confirm page is just an `<a href>` back to `/articles/` — session is untouched, the user keeps their picks. Free UX win; alternative (Cancel = clear session) was rejected as user-hostile.
+
+**Auth + cross-order checks on every view.** `ArticlesView.post`, `ConfirmView.get/post`, and `SuccessView.get` all open with the same `request.session.get("order_number") != order_number` guard from SEC-001. Pinned by `test_unauthenticated_post_articles_redirects` and `test_cross_order_post_blocked`.
+
+**Form action explicit, not blank.** The articles form posts to `{% url 'articles' order.order_number %}` rather than `action=""`. With FR-001's `?returnable_only=1` query param in the URL, an empty action would post to the filtered URL — harmless but confusing in DevTools. Explicit action keeps the canonical URL on submission regardless of filter state.
+
+**Tests added (10):** valid submission → confirm + session populated, empty submission → back to articles, tampered SKU dropped, qty clamping, confirm-without-session redirects, confirm renders line items, confirm POST clears session and redirects, success page renders with order number, unauthenticated POST blocked, cross-order POST blocked.
+
+**What I could *not* verify from tests.** Same caveat as FR-001: the Django test client renders templates and asserts response bytes, so the server-side flow is fully covered. Browser-side concerns — CSRF token actually round-tripping, Continue button enabling on Alpine state change, the redirect chain in DevTools — need a manual click-through.
+
+**Final test count: 75 passing** (was 27 / 4 failing at the start of the challenge). End-to-end flow exercisable from the browser: lookup → articles → (filter) → confirm → success.

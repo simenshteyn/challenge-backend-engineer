@@ -77,3 +77,106 @@ class ArticlesView(View):
                 "returnable_only": returnable_only,
             },
         )
+
+    def post(self, request: HttpRequest, order_number: str) -> HttpResponse:
+        if request.session.get("order_number") != order_number:
+            return redirect("lookup")
+
+        order = get_order(order_number)
+        if order is None:
+            return redirect("lookup")
+
+        # Re-evaluate eligibility on the server — never trust the form's
+        # SKU/qty without re-checking. (Same lesson as SEC-001.)
+        selectable: dict[str, int] = {}
+        for result in evaluate_eligibility(order):
+            remaining = result.article.quantity - result.article.quantity_returned
+            if result.returnable and remaining > 0:
+                selectable[result.article.sku] = remaining
+
+        selection: list[dict[str, int | str]] = []
+        for sku in request.POST.getlist("selected"):
+            qty_left = selectable.get(sku)
+            if qty_left is None:
+                continue  # not selectable in the current state — silently drop
+            try:
+                qty = int(request.POST.get(f"qty_{sku}", "1"))
+            except (TypeError, ValueError):
+                qty = 1
+            qty = max(1, min(qty, qty_left))
+            selection.append({"sku": sku, "qty": qty})
+
+        if not selection:
+            return redirect("articles", order_number=order_number)
+
+        request.session["return_selection"] = selection
+        return redirect("confirm", order_number=order_number)
+
+
+class ConfirmView(View):
+    """Confirmation page – shows what's about to be returned."""
+
+    def get(self, request: HttpRequest, order_number: str) -> HttpResponse:
+        if request.session.get("order_number") != order_number:
+            return redirect("lookup")
+
+        selection = request.session.get("return_selection")
+        if not selection:
+            return redirect("articles", order_number=order_number)
+
+        order = get_order(order_number)
+        if order is None:
+            return redirect("lookup")
+
+        articles_by_sku = {a.sku: a for a in order.articles}
+        line_items = []
+        total = 0.0
+        for entry in selection:
+            article = articles_by_sku.get(entry["sku"])
+            if article is None:
+                continue
+            qty = int(entry["qty"])
+            subtotal = round(article.price * qty, 2)
+            line_items.append(
+                {"article": article, "qty": qty, "subtotal": subtotal}
+            )
+            total += subtotal
+
+        if not line_items:
+            return redirect("articles", order_number=order_number)
+
+        return render(
+            request,
+            "returns/confirm.html",
+            {
+                "order": order,
+                "line_items": line_items,
+                "total": round(total, 2),
+            },
+        )
+
+    def post(self, request: HttpRequest, order_number: str) -> HttpResponse:
+        if request.session.get("order_number") != order_number:
+            return redirect("lookup")
+
+        if not request.session.get("return_selection"):
+            return redirect("articles", order_number=order_number)
+
+        # Demo-mode fire-and-forget: clear the pending selection and move on.
+        # A real implementation would persist a Return aggregate here.
+        request.session.pop("return_selection", None)
+        return redirect("success", order_number=order_number)
+
+
+class SuccessView(View):
+    """Success page – return submitted."""
+
+    def get(self, request: HttpRequest, order_number: str) -> HttpResponse:
+        if request.session.get("order_number") != order_number:
+            return redirect("lookup")
+
+        order = get_order(order_number)
+        if order is None:
+            return redirect("lookup")
+
+        return render(request, "returns/success.html", {"order": order})

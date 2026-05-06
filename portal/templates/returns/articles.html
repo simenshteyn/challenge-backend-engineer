@@ -33,8 +33,11 @@
 
     <form
         id="return-selection-form"
+        method="post"
+        action="{% url 'articles' order.order_number %}"
         x-data="{ selected: {}, hasSelection() { return Object.values(this.selected).some(Boolean); } }"
     >
+        {% csrf_token %}
         <div id="article-list">
             {% include "returns/_article_list.html" %}
         </div>
@@ -43,7 +46,7 @@
             <a href="{% url 'lookup' %}" class="btn btn-secondary">&larr; Back to lookup</a>
             <button
                 id="continue-btn"
-                type="button"
+                type="submit"
                 class="btn btn-primary continue-btn"
                 :disabled="!hasSelection()"
                 disabled

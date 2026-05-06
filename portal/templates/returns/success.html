@@ -1,0 +1,17 @@
+{% extends "returns/base.html" %}
+
+{% block title %}Return submitted &mdash; Returns Portal{% endblock %}
+
+{% block content %}
+    <div style="max-width: 480px; margin: 2rem auto; text-align: center;">
+        <div class="card">
+            <h1 style="margin-bottom: 0.5rem;">Return submitted</h1>
+            <p class="help-text" style="margin-bottom: 1.5rem;">
+                We've received your return request for order
+                <strong>{{ order.order_number }}</strong>. You'll get an email
+                with shipping instructions shortly.
+            </p>
+            <a href="{% url 'lookup' %}" class="btn btn-primary">Start another return</a>
+        </div>
+    </div>
+{% endblock %}

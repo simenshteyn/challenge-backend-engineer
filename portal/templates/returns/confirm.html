@@ -1,0 +1,45 @@
+{% extends "returns/base.html" %}
+
+{% block title %}Confirm return &mdash; Returns Portal{% endblock %}
+
+{% block content %}
+    <div class="order-header">
+        <h1>Confirm return</h1>
+        <div class="order-meta">
+            <span>Order {{ order.order_number }}</span>
+            <span>{{ order.recipient }}</span>
+        </div>
+    </div>
+
+    <h2>You're returning</h2>
+
+    {% for item in line_items %}
+        <div class="article-card">
+            <div class="article-info">
+                <div class="article-name">{{ item.article.name }}</div>
+                <div class="article-meta">
+                    SKU: {{ item.article.sku }}
+                    &middot; Qty: {{ item.qty }}
+                </div>
+            </div>
+            <div class="article-price">&euro;{{ item.subtotal }}</div>
+        </div>
+    {% endfor %}
+
+    <div class="article-card" style="font-weight: 600; background: var(--color-bg);">
+        <div class="article-info">Refund total</div>
+        <div class="article-price">&euro;{{ total }}</div>
+    </div>
+
+    <form method="post" action="{% url 'confirm' order.order_number %}">
+        {% csrf_token %}
+        <div class="selection-actions mt-2">
+            <a href="{% url 'articles' order.order_number %}" class="btn btn-secondary">
+                &larr; Cancel
+            </a>
+            <button type="submit" class="btn btn-primary continue-btn">
+                Confirm return
+            </button>
+        </div>
+    </form>
+{% endblock %}
