@@ -78,9 +78,7 @@ class ReturnWindowRule(_Rule):
             return value
         bad = [k for k in value if k != k.lower()]
         if bad:
-            raise ValueError(
-                f"category_windows keys must be lowercase, got: {bad!r}"
-            )
+            raise ValueError(f"category_windows keys must be lowercase, got: {bad!r}")
         return value
 
     def _window_for(self, article: Article) -> int:

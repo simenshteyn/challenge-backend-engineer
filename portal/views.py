@@ -68,9 +68,7 @@ class ArticlesView(View):
 
         # HTMX swaps just the article list; full GETs return the page chrome.
         is_htmx = request.headers.get("HX-Request") == "true"
-        template = (
-            "returns/_article_list.html" if is_htmx else "returns/articles.html"
-        )
+        template = "returns/_article_list.html" if is_htmx else "returns/articles.html"
 
         return render(
             request,
@@ -142,9 +140,7 @@ class ConfirmView(View):
                 continue
             qty = int(entry["qty"])
             subtotal = round(article.price * qty, 2)
-            line_items.append(
-                {"article": article, "qty": qty, "subtotal": subtotal}
-            )
+            line_items.append({"article": article, "qty": qty, "subtotal": subtotal})
             total += subtotal
 
         if not line_items:

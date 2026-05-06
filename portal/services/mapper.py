@@ -81,7 +81,9 @@ def _derive_is_final_sale(item: dict[str, Any]) -> bool:
     raw = item.get("final_sale")
     if isinstance(raw, bool):
         return raw
-    return any(tag.lower() in _FINAL_SALE_TAGS for tag in _as_str_list(item.get("tags")))
+    return any(
+        tag.lower() in _FINAL_SALE_TAGS for tag in _as_str_list(item.get("tags"))
+    )
 
 
 def map_order(raw: dict[str, Any]) -> Order:

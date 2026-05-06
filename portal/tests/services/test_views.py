@@ -110,12 +110,8 @@ class TestReturnableOnlyFilter:
         assert b"TSHIRT-BLK-M" in response.content  # returnable
         assert b"EBOOK-RETURNS" in response.content  # digital, not returnable
 
-    def test_returnable_only_hides_non_returnable(
-        self, authed_client: Client
-    ) -> None:
-        response = authed_client.get(
-            "/returns/RMA-1001/articles/?returnable_only=1"
-        )
+    def test_returnable_only_hides_non_returnable(self, authed_client: Client) -> None:
+        response = authed_client.get("/returns/RMA-1001/articles/?returnable_only=1")
         assert response.status_code == 200
         assert b"TSHIRT-BLK-M" in response.content
         assert b"EBOOK-RETURNS" not in response.content
@@ -192,9 +188,7 @@ class TestReturnSubmissionFlow:
             {"sku": "TSHIRT-BLK-M", "qty": 1},
         ]
 
-    def test_post_articles_clamps_qty_to_remaining(
-        self, authed_client: Client
-    ) -> None:
+    def test_post_articles_clamps_qty_to_remaining(self, authed_client: Client) -> None:
         """Submitting qty > remaining is silently clamped, not rejected."""
         response = authed_client.post(
             "/returns/RMA-1001/articles/",
@@ -243,9 +237,7 @@ class TestReturnSubmissionFlow:
         assert b"Return submitted" in response.content
         assert b"RMA-1001" in response.content
 
-    def test_unauthenticated_post_articles_redirects(
-        self, client: Client
-    ) -> None:
+    def test_unauthenticated_post_articles_redirects(self, client: Client) -> None:
         """Without a prior lookup, POST to /articles/ goes to /returns/."""
         response = client.post(
             "/returns/RMA-1001/articles/",
@@ -267,9 +259,7 @@ class TestReturnSubmissionFlow:
 class TestSessionHygiene:
     """OPEN-001: anti-fixation rotation and stale-state cleanup on lookup."""
 
-    def test_session_key_rotates_on_successful_lookup(
-        self, client: Client
-    ) -> None:
+    def test_session_key_rotates_on_successful_lookup(self, client: Client) -> None:
         """Anti session-fixation: a fresh session ID is issued on auth."""
         # Establish a baseline session by writing a sentinel and saving.
         baseline = client.session

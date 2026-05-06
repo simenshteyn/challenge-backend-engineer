@@ -141,7 +141,9 @@ class ReturnsViewSet(viewsets.ViewSet):
         }
 
     def _serialize_result(self, result: ArticleEligibility) -> dict[str, Any]:
-        remaining_qty = max(result.article.quantity - result.article.quantity_returned, 0)
+        remaining_qty = max(
+            result.article.quantity - result.article.quantity_returned, 0
+        )
         return {
             "article": self._serialize_article(result.article),
             "returnable": result.returnable,

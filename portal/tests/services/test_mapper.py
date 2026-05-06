@@ -125,7 +125,5 @@ class TestMapArticleExplicitFields:
 
     def test_clearance_tag_alone_is_not_final_sale(self) -> None:
         """`clearance` tag is pricing, not a return-policy flag."""
-        order = map_order(
-            _wrap({"sku": "X", "name": "X", "tags": ["clearance"]})
-        )
+        order = map_order(_wrap({"sku": "X", "name": "X", "tags": ["clearance"]}))
         assert order.articles[0].is_final_sale is False

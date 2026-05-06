@@ -174,9 +174,7 @@ class TestMatchedRule:
 class TestRuleOrdering:
     """First matching rule wins — no double-counting."""
 
-    def test_fully_returned_takes_precedence_over_window(
-        self, tmp_path: Path
-    ) -> None:
+    def test_fully_returned_takes_precedence_over_window(self, tmp_path: Path) -> None:
         """An already-returned item should report `fully_returned`, not
         `return_window`, even when both would match."""
         rules_file = tmp_path / "rules.yaml"
@@ -202,10 +200,7 @@ class TestCustomRulesConfig:
     def test_custom_window_days(self, tmp_path: Path) -> None:
         rules_file = tmp_path / "rules.yaml"
         rules_file.write_text(
-            "rules:\n"
-            "  - type: return_window\n"
-            "    days: 7\n"
-            "    reason: short window\n"
+            "rules:\n  - type: return_window\n    days: 7\n    reason: short window\n"
         )
         order = _make_order(
             delivery_date=datetime.now() - timedelta(days=10),
@@ -234,9 +229,7 @@ class TestCustomRulesConfig:
         assert result.returnable is False
         assert "14" in result.reason
 
-    def test_unmapped_category_falls_back_to_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_unmapped_category_falls_back_to_default(self, tmp_path: Path) -> None:
         """Categories not listed in `category_windows` use the default `days`."""
         rules_file = tmp_path / "rules.yaml"
         rules_file.write_text(
@@ -306,10 +299,7 @@ class TestCustomRulesConfig:
         """`days` must be >= 1 — a negative window is almost always a typo."""
         rules_file = tmp_path / "rules.yaml"
         rules_file.write_text(
-            "rules:\n"
-            "  - type: return_window\n"
-            "    days: -7\n"
-            "    reason: x\n"
+            "rules:\n  - type: return_window\n    days: -7\n    reason: x\n"
         )
         order = _make_order(articles=[_make_article()])
         with pytest.raises(ValidationError):
@@ -364,10 +354,7 @@ class TestCustomRulesConfig:
         """An injected `now` lets us test windows deterministically."""
         rules_file = tmp_path / "rules.yaml"
         rules_file.write_text(
-            "rules:\n"
-            "  - type: return_window\n"
-            "    days: 30\n"
-            "    reason: expired\n"
+            "rules:\n  - type: return_window\n    days: 30\n    reason: expired\n"
         )
         order = _make_order(
             delivery_date=datetime(2025, 1, 1),
