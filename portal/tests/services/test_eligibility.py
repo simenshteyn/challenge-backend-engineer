@@ -7,6 +7,7 @@ that cover your rules and edge cases.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import TypedDict, Unpack
 
 from portal.services.eligibility import evaluate_eligibility
@@ -135,3 +136,102 @@ class TestRegularItem:
         )
         results = evaluate_eligibility(order)
         assert results[0].returnable is True
+
+
+class TestFinalSaleItems:
+    """Final-sale items should not be returnable."""
+
+    def test_final_sale_item_is_not_returnable(self) -> None:
+        order = _make_order(
+            articles=[_make_article(is_final_sale=True)],
+        )
+        results = evaluate_eligibility(order)
+        assert results[0].returnable is False
+
+
+class TestMatchedRule:
+    """The `matched_rule` field should carry a stable rule identifier."""
+
+    def test_digital_match_emits_rule_id(self) -> None:
+        order = _make_order(articles=[_make_article(is_digital=True)])
+        result = evaluate_eligibility(order)[0]
+        assert result.matched_rule == "digital"
+        assert result.reason  # human-readable, non-empty
+
+    def test_returnable_item_has_empty_match(self) -> None:
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=5),
+            articles=[_make_article()],
+        )
+        result = evaluate_eligibility(order)[0]
+        assert result.matched_rule == ""
+        assert result.reason == ""
+
+
+class TestRuleOrdering:
+    """First matching rule wins — no double-counting."""
+
+    def test_fully_returned_takes_precedence_over_window(
+        self, tmp_path: Path
+    ) -> None:
+        """An already-returned item should report `fully_returned`, not
+        `return_window`, even when both would match."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: fully_returned\n"
+            "    reason: already returned\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    reason: window expired\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=100),
+            articles=[_make_article(quantity=1, quantity_returned=1)],
+        )
+        result = evaluate_eligibility(order, rules_path=rules_file)[0]
+        assert result.matched_rule == "fully_returned"
+
+
+class TestCustomRulesConfig:
+    """The engine should accept a custom rules file (used by BR-004 etc.)."""
+
+    def test_custom_window_days(self, tmp_path: Path) -> None:
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 7\n"
+            "    reason: short window\n"
+        )
+        order = _make_order(
+            delivery_date=datetime.now() - timedelta(days=10),
+            articles=[_make_article()],
+        )
+        result = evaluate_eligibility(order, rules_path=rules_file)[0]
+        assert result.returnable is False
+        assert result.matched_rule == "return_window"
+
+    def test_now_override(self, tmp_path: Path) -> None:
+        """An injected `now` lets us test windows deterministically."""
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text(
+            "rules:\n"
+            "  - type: return_window\n"
+            "    days: 30\n"
+            "    reason: expired\n"
+        )
+        order = _make_order(
+            delivery_date=datetime(2025, 1, 1),
+            articles=[_make_article()],
+        )
+        # 10 days after delivery — within window
+        result = evaluate_eligibility(
+            order, rules_path=rules_file, now=datetime(2025, 1, 11)
+        )[0]
+        assert result.returnable is True
+        # 100 days after delivery — outside window
+        result = evaluate_eligibility(
+            order, rules_path=rules_file, now=datetime(2025, 4, 11)
+        )[0]
+        assert result.returnable is False

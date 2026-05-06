@@ -1,22 +1,120 @@
-"""Return eligibility engine."""
+"""Return eligibility engine.
+
+Rules are loaded from a YAML config (``portal/data/return_rules.yaml``)
+and evaluated in order; the first matching rule marks an article as
+not returnable.  Adding a new rule = a new ``_Rule`` subclass plus a
+``type`` literal — see :class:`ReturnWindowRule` for the shape.
+"""
 
 from __future__ import annotations
 
-from portal.types import ArticleEligibility, Order
+import functools
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Annotated, Literal
+
+import yaml
+from pydantic import BaseModel, Field
+
+from portal.types import Article, ArticleEligibility, Order
+
+_DEFAULT_RULES_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "return_rules.yaml"
+)
 
 
-def evaluate_eligibility(order: Order) -> list[ArticleEligibility]:
+class _Rule(BaseModel):
+    """Common fields shared by every rule."""
+
+    reason: str
+
+    def matches(self, article: Article, order: Order, now: datetime) -> bool:
+        raise NotImplementedError
+
+
+class FullyReturnedRule(_Rule):
+    type: Literal["fully_returned"]
+
+    def matches(self, article: Article, order: Order, now: datetime) -> bool:
+        return article.quantity_returned >= article.quantity
+
+
+class DigitalRule(_Rule):
+    type: Literal["digital"]
+
+    def matches(self, article: Article, order: Order, now: datetime) -> bool:
+        return article.is_digital
+
+
+class FinalSaleRule(_Rule):
+    type: Literal["final_sale"]
+
+    def matches(self, article: Article, order: Order, now: datetime) -> bool:
+        return article.is_final_sale
+
+
+class ReturnWindowRule(_Rule):
+    type: Literal["return_window"]
+    days: int
+
+    def matches(self, article: Article, order: Order, now: datetime) -> bool:
+        return now - order.delivery_date > timedelta(days=self.days)
+
+
+Rule = Annotated[
+    FullyReturnedRule | DigitalRule | FinalSaleRule | ReturnWindowRule,
+    Field(discriminator="type"),
+]
+
+
+class RulesConfig(BaseModel):
+    rules: list[Rule]
+
+
+@functools.cache
+def _load_rules(path: Path) -> RulesConfig:
+    raw = yaml.safe_load(path.read_text())
+    return RulesConfig.model_validate(raw)
+
+
+def evaluate_eligibility(
+    order: Order,
+    *,
+    rules_path: Path | None = None,
+    now: datetime | None = None,
+) -> list[ArticleEligibility]:
     """Evaluate return eligibility for every article in *order*.
 
-    Returns:
-        A list of :class:`ArticleEligibility`, one per article in the order.
+    Args:
+        order: The order whose articles to evaluate.
+        rules_path: Optional override for the rules config (tests/staging).
+        now: Optional clock override; defaults to ``datetime.now()``.
     """
+    config = _load_rules(rules_path or _DEFAULT_RULES_PATH)
+    current_time = now or datetime.now()
     return [
-        ArticleEligibility(
-            article=article,
-            returnable=True,
-            reason="",
-            matched_rule="",
-        )
+        _evaluate_article(article, order, config.rules, current_time)
         for article in order.articles
     ]
+
+
+def _evaluate_article(
+    article: Article,
+    order: Order,
+    rules: list[Rule],
+    now: datetime,
+) -> ArticleEligibility:
+    for rule in rules:
+        if rule.matches(article, order, now):
+            return ArticleEligibility(
+                article=article,
+                returnable=False,
+                reason=rule.reason,
+                matched_rule=rule.type,
+            )
+    return ArticleEligibility(
+        article=article,
+        returnable=True,
+        reason="",
+        matched_rule="",
+    )

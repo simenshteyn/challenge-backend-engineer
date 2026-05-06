@@ -1,0 +1,27 @@
+# Return policy rules.
+#
+# Evaluated in order; the first matching rule wins and marks the item
+# as not returnable.  Items that match no rule are returnable.
+#
+# Rule types:
+#   fully_returned  – every unit has already been returned
+#   digital         – the item is a digital good
+#   final_sale      – the item was sold as final-sale
+#   return_window   – delivery date is older than `days`
+#
+# `reason` is shown to the customer; `type` is also surfaced as
+# `matched_rule` for support tooling.
+
+rules:
+  - type: fully_returned
+    reason: "All units of this item have already been returned."
+
+  - type: digital
+    reason: "Digital items are not eligible for return."
+
+  - type: final_sale
+    reason: "Final-sale items cannot be returned."
+
+  - type: return_window
+    days: 30
+    reason: "The 30-day return window has expired."
