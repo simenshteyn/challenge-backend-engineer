@@ -91,3 +91,52 @@ class TestArticlesView:
         response = client.get("/returns/RMA-1002/articles/")
         assert response.status_code == 302
         assert response.headers["Location"] == "/returns/"
+
+
+class TestReturnableOnlyFilter:
+    """FR-001: HTMX-driven filter that hides non-returnable items."""
+
+    @pytest.fixture()
+    def authed_client(self, client: Client) -> Client:
+        client.post(
+            "/returns/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+        )
+        return client
+
+    def test_no_filter_shows_all_articles(self, authed_client: Client) -> None:
+        response = authed_client.get("/returns/RMA-1001/articles/")
+        assert response.status_code == 200
+        assert b"TSHIRT-BLK-M" in response.content  # returnable
+        assert b"EBOOK-RETURNS" in response.content  # digital, not returnable
+
+    def test_returnable_only_hides_non_returnable(
+        self, authed_client: Client
+    ) -> None:
+        response = authed_client.get(
+            "/returns/RMA-1001/articles/?returnable_only=1"
+        )
+        assert response.status_code == 200
+        assert b"TSHIRT-BLK-M" in response.content
+        assert b"EBOOK-RETURNS" not in response.content
+
+    def test_htmx_request_returns_partial(self, authed_client: Client) -> None:
+        """HTMX swaps just the article list — no <html>, no page chrome."""
+        response = authed_client.get(
+            "/returns/RMA-1001/articles/",
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert b"<html" not in response.content
+        assert b"order-header" not in response.content
+        assert b"article-card" in response.content
+
+    def test_htmx_request_with_filter(self, authed_client: Client) -> None:
+        response = authed_client.get(
+            "/returns/RMA-1001/articles/?returnable_only=1",
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert b"<html" not in response.content
+        assert b"TSHIRT-BLK-M" in response.content
+        assert b"EBOOK-RETURNS" not in response.content

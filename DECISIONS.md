@@ -125,3 +125,25 @@ The following are real concerns but are intentionally **not** part of SEC-001 �
 - Combined mapper+eligibility integration on a specific fixture. Both sides are well-covered in isolation; the integration is exercised end-to-end through `test_articles_after_lookup_returns_order_and_eligibility` in the API suite.
 
 **Final test count: 61 passing** (was 27 / 4 failing at the start of the challenge). Coverage is concentrated where it pays — the mapper's payload-shape variants, the rules engine's config validation, the auth boundary, and both HTML/API surfaces of the SEC-001 invariant.
+
+## FR-001 — "Show returnable only" filter
+
+**Decision:** Server-side HTMX filter via a query parameter (`?returnable_only=1`). The articles page extracts its list rendering into a partial (`_article_list.html`); the toggle's `hx-get` swaps just that partial into `<div id="article-list">`. `hx-push-url="true"` keeps the browser URL in sync so back/refresh/share-link all behave correctly.
+
+**Why server-side, not Alpine `x-show`:** the README is explicit ("using HTMX"), and the server already has the `returnable` flag — duplicating that decision in client JS would just be a place for the two to drift. The HTMX response also keeps state in the URL, which is the right shape for "I want to share a filtered link with support."
+
+**Filter applied at the typed boundary:** filtering `results: list[ArticleEligibility]` *before* building the loosely-typed `article_rows` dicts keeps mypy strict happy without resorting to `cast()` and reads more naturally — "filter the eligibility results, then render".
+
+**SKU-keyed Alpine selection state.** The pre-FR-001 template keyed `selected['item_{forloop.counter}']` — stable when the list never changed, broken the moment FR-001 filters reduce the list (a checked TSHIRT at index 1 would migrate to a checked HOODIE at index 1 after toggle). Switched to `selected['{sku|escapejs}']`, which is stable across renders and pre-builds the foundation FR-002 will need anyway (the submission has to identify items by SKU, not by render order). `escapejs` defends against the unlikely-but-possible apostrophe in a SKU string.
+
+**HTMX detection via header, not a separate URL.** `request.headers.get("HX-Request") == "true"` picks the partial template; otherwise full page. One endpoint, one URL, two render paths. Avoids a second route and keeps `hx-push-url` clean — the URL the browser shows after the swap is the same URL a fresh visitor would type.
+
+**Toggle deliberately *outside* the form.** It's not part of the return submission; placing it inside would have HTMX include every form field as a query param by default. Outside-the-form is also semantically right — the toggle is a view filter, not part of "what I want to return".
+
+**API surface deliberately left untouched.** README only asks for the HTML toggle. Adding a `?returnable_only=` filter to the DRF `articles` endpoint would be unrequested scope. If the API needs it later, it's one `if` away.
+
+**What I could *not* verify from tests.** The Django test client renders templates and asserts response bytes, so the server-side filter, partial extraction, and HX-Request branching are all covered. The *HTMX wiring itself* — toggle click triggers AJAX, response swaps the target, Alpine rebinds the new checkboxes against the existing `selected` scope — runs in the browser and can't be exercised from pytest. Verified manually in dev.
+
+**Tests added (4):** `test_no_filter_shows_all_articles`, `test_returnable_only_hides_non_returnable`, `test_htmx_request_returns_partial` (asserts `<html>` and page chrome are absent, article cards present), `test_htmx_request_with_filter` (combined contract).
+
+**Setup gotcha for fresh checkouts.** The README's quickstart goes `uv sync` → `pytest` → `runserver`, but the `runserver` flow uses Django sessions and the SQLite DB has never been migrated, so the first POST to `/returns/` raises `OperationalError: no such table: django_session`. `pytest` doesn't hit this because pytest-django builds the test DB from migrations on every run. Reviewers will need `uv run python manage.py migrate` once before `runserver`. Not a regression introduced by FR-001 — the same gap exists on `main` — but FR-001 is the first task that actually exercises sessions in the browser, so it surfaced here.

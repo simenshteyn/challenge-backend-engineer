@@ -1,0 +1,61 @@
+{% for row in article_rows %}
+    <div class="article-card{% if not row.selectable %} article-card-muted{% endif %}">
+        <div class="article-selector">
+            <input
+                type="checkbox"
+                id="item-{{ forloop.counter }}"
+                class="item-checkbox"
+                {% if row.selectable %}
+                    x-model="selected['{{ row.result.article.sku|escapejs }}']"
+                {% else %}
+                    disabled
+                {% endif %}
+            >
+        </div>
+
+        <div class="article-info">
+            <label for="item-{{ forloop.counter }}" class="article-name article-name-label">
+                {{ row.result.article.name }}
+            </label>
+            <div class="article-meta">
+                SKU: {{ row.result.article.sku }}
+                &middot; Qty: {{ row.result.article.quantity }}
+                {% if row.result.article.quantity_returned > 0 %}
+                    ({{ row.result.article.quantity_returned }} returned)
+                {% endif %}
+            </div>
+            {% if not row.selectable %}
+                <div class="help-text mt-1">
+                    {% if not row.result.returnable and row.result.reason %}
+                        {{ row.result.reason }}
+                    {% else %}
+                        Not selectable for return.
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="article-actions">
+            <label for="qty-{{ forloop.counter }}" class="qty-label">Return qty</label>
+            <select
+                id="qty-{{ forloop.counter }}"
+                class="qty-select"
+                {% if row.selectable %}
+                    :disabled="!selected['{{ row.result.article.sku|escapejs }}']"
+                {% else %}
+                    disabled
+                {% endif %}
+            >
+                {% for qty in row.quantity_options %}
+                    <option value="{{ qty }}">{{ qty }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="article-price">&euro;{{ row.result.article.price }}</div>
+    </div>
+{% empty %}
+    <p class="help-text" style="padding: 1rem; text-align: center;">
+        No returnable items in this order.
+    </p>
+{% endfor %}

@@ -40,7 +40,12 @@ class ArticlesView(View):
         if order is None:
             return redirect("lookup")
 
+        returnable_only = request.GET.get("returnable_only") == "1"
+
         results = evaluate_eligibility(order)
+        if returnable_only:
+            results = [r for r in results if r.returnable]
+
         article_rows = []
         for result in results:
             remaining_qty = max(
@@ -56,12 +61,19 @@ class ArticlesView(View):
                 }
             )
 
+        # HTMX swaps just the article list; full GETs return the page chrome.
+        is_htmx = request.headers.get("HX-Request") == "true"
+        template = (
+            "returns/_article_list.html" if is_htmx else "returns/articles.html"
+        )
+
         return render(
             request,
-            "returns/articles.html",
+            template,
             {
                 "order": order,
                 "results": results,
                 "article_rows": article_rows,
+                "returnable_only": returnable_only,
             },
         )
