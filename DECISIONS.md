@@ -106,3 +106,22 @@ The following are real concerns but are intentionally **not** part of SEC-001 �
 - **Session not rotated on lookup.** `request.session.cycle_key()` after a successful lookup would close a session-fixation surface. Low impact — only `order_number` is stored.
 - **DRF `SessionAuthentication` doesn't enforce CSRF for anonymous requests** (well-known DRF behaviour: `enforce_csrf` is gated inside `authenticate()`, which returns early for anonymous users). At worst an attacker can pin a victim's session to *their own* order — no unauthorised data access.
 - **Lookup error message is uniform** — same `"Order not found or credentials do not match."` for both "no such order" and "wrong credentials". Avoids becoming an existence oracle. ✓ (called out as a positive observation.)
+
+## BR-003 — fix and extend the test suite
+
+**Decision:** Scoped down sharply. The "fix the failing suite" half of BR-003 was already accomplished as a side effect of BR-001 (mapper fields) and BR-002 (rules engine) — the four originally-failing tests turned green automatically once the implementation work landed. So BR-003 collapses to "add tests that give confidence", and I picked the two highest-leverage gaps rather than padding the suite.
+
+**Two gaps addressed**, in `portal/tests/services/test_order_store.py` (new file):
+
+1. **`find_order` direct unit tests.** The function is the auth boundary, but until now it was only exercised indirectly via the view tests. Direct coverage on seven cases — valid email, valid zip, wrong email, wrong zip, unknown order, *credentials from a different order* (Lee's email/zip must not unlock Alex's order), and an empty-string identifier (the form layer rejects this, but the function-level contract is now pinned too). The cross-credentials case is the unit-level analogue of the SEC-001 IDOR contract: even with valid creds in the system, they only unlock *their* order.
+
+2. **`orders_raw.json` round-trip.** Parametrised dynamically over every order discovered in the file at import time (via the existing loader, no duplicated path logic), asserts shape invariants — non-empty SKU, populated `delivery_date`, `quantity >= 1`, etc. — without pinning specific field values. Adding a fourth order to the JSON automatically extends the test; this is the "intern adds RMA-1004 with a typo'd `email_adress`" regression class, and the test wouldn't catch it if the parametrisation list were hardcoded.
+
+**Gaps deliberately not addressed** (rationale: marginal value, not worth the suite-noise cost):
+
+- 30-day boundary tests (`>` vs `>=`). Pins one number, won't catch real regressions; the inequality is a documented design choice.
+- LookupForm validation. Django's form behaviour is Django's responsibility.
+- Coverage of the mapper's `_as_int` / `_as_float` defensive coercion helpers. Internal, exercised transitively, low risk.
+- Combined mapper+eligibility integration on a specific fixture. Both sides are well-covered in isolation; the integration is exercised end-to-end through `test_articles_after_lookup_returns_order_and_eligibility` in the API suite.
+
+**Final test count: 61 passing** (was 27 / 4 failing at the start of the challenge). Coverage is concentrated where it pays — the mapper's payload-shape variants, the rules engine's config validation, the auth boundary, and both HTML/API surfaces of the SEC-001 invariant.
