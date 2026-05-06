@@ -69,3 +69,40 @@ All four pinned by tests in `TestCustomRulesConfig`.
 - **No interpolation; one fixed reason string.** Rejected — message would lie when a category window fires ("30-day window expired" while electronics actually has a 14-day window).
 
 **Tests added:** eight tests covering category-override applies (electronics 14 < default 30), unmapped category falls back to default, empty category falls back to default, multi-article order where two categories resolve to different windows in the same evaluation, plus four pinning the validation contract (`days: -7`, per-category `electronics: -7`, uppercase key `Electronics:`, and a typo'd field name all raise `ValidationError`).
+
+## SEC-001 — IDOR in the DRF articles endpoint
+
+**Finding:** the JSON API checked that *some* lookup had occurred but did not verify that the session's `order_number` matched the requested one. After authenticating to any order they own, a customer could read every other order's data — recipient name, postal address, line items, prices — by substituting the URL path. The HTML view (`portal/views.py:36`) had the correct `!=` check; the DRF view (`portal/api.py:104`) had drifted to a truthiness check.
+
+```python
+# Before (vulnerable)
+if not request.session.get("order_number"):
+    return Response(..., 403)
+
+# After (fixed)
+if request.session.get("order_number") != order_number:
+    return Response(..., 403)
+```
+
+**Impact:** straightforward IDOR. The auth model is "the session binds you to the order you proved you own"; the API silently let any authenticated customer enumerate every order by ID. Order numbers are short and human-readable (`RMA-1001`, `RMA-1002`, …), so enumeration is trivial.
+
+**Why this happened (probably):** the HTML view was written first, the API was added later, and the author copied the *intent* of the auth check but typed the *easier* form. Both endpoints needed the same predicate; only one had it.
+
+**Fix:** one-line change in `portal/api.py`, plus an inline comment that names the SEC-001 invariant so a future refactor doesn't quietly weaken it.
+
+**Tests added (red-then-green):**
+- `test_articles_rejects_cross_order_access` (API): authenticate to RMA-1001 with valid creds, request `/api/returns/RMA-1002/articles/`, assert 403. Failed before the fix (200), passes after.
+- `test_cross_order_access_redirects` (HTML view): same shape — pins the existing-correct behavior so a future refactor of the HTML view can't silently regress to the same bug. Asserts the 302 + redirect target.
+
+**Why pin both:** the bug existed because the two surfaces diverged. A single test on the API surface would catch *this* bug, but pinning the HTML view too makes it a *symmetric* invariant — the next person adding a third surface (mobile API, partner API, …) has two examples of the contract.
+
+**Out of scope, but observed.** The audit also reviewed: SQL injection (none — no raw SQL), XSS / template injection (none — Django auto-escape on, no `|safe` / `mark_safe` / `format_html` / `{% autoescape off %}`), open redirect (none — `redirect()` only resolves named routes), unsafe deserialization (`yaml.safe_load`, not `yaml.load`), path traversal (data and rules paths computed from `__file__`), shell exec / eval (none), and mass assignment (no `**cleaned_data` splat into models). All clean.
+
+The following are real concerns but are intentionally **not** part of SEC-001 — either documented as the intended model, or scoped at deployment rather than application code:
+
+- **`SECRET_KEY = "dev-secret-key"` and `DEBUG = True`** in `returns_portal/settings.py`. Fine for a localhost challenge, predictable session/CSRF tokens and leaked tracebacks in prod. Standard starter-code caveat.
+- **Auth model: email *or* zip, no rate limiting.** Zip codes are guessable and order numbers are sequential (`RMA-1001`, `1002`, …). README documents this as the intended auth model, so any change is a product decision, not a fix.
+- **Case-sensitive email comparison in `find_order`.** `alex@example.com` works, `Alex@example.com` doesn't. UX bug, not security.
+- **Session not rotated on lookup.** `request.session.cycle_key()` after a successful lookup would close a session-fixation surface. Low impact — only `order_number` is stored.
+- **DRF `SessionAuthentication` doesn't enforce CSRF for anonymous requests** (well-known DRF behaviour: `enforce_csrf` is gated inside `authenticate()`, which returns early for anonymous users). At worst an attacker can pin a victim's session to *their own* order — no unauthorised data access.
+- **Lookup error message is uniform** — same `"Order not found or credentials do not match."` for both "no such order" and "wrong credentials". Avoids becoming an existence oracle. ✓ (called out as a positive observation.)

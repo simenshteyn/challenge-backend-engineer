@@ -80,3 +80,14 @@ class TestArticlesView:
         response = client.get("/returns/RMA-1001/articles/")
         assert response.status_code == 200
         assert b"TSHIRT-BLK-M" in response.content
+
+    def test_cross_order_access_redirects(self, client: Client) -> None:
+        """SEC-001 parity: authenticating to one order must not grant access
+        to another order via URL substitution."""
+        client.post(
+            "/returns/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+        )
+        response = client.get("/returns/RMA-1002/articles/")
+        assert response.status_code == 302
+        assert response.headers["Location"] == "/returns/"

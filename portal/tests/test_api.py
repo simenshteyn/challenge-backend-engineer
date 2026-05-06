@@ -72,3 +72,22 @@ class TestReturnsApiViewSet:
         assert second["article"]["sku"] == "EBOOK-RETURNS"
         assert second["returnable"] is False
         assert second["selectable"] is False
+
+    def test_articles_rejects_cross_order_access(self) -> None:
+        """SEC-001: authenticating to one order must not grant access to others.
+
+        A user who legitimately authenticates to RMA-1001 should not be able
+        to read RMA-1002's customer data by changing the URL — the session's
+        `order_number` must be checked against the requested resource.
+        """
+        client = APIClient()
+        lookup = client.post(
+            "/api/returns/lookup/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+            format="json",
+        )
+        assert lookup.status_code == 200
+
+        response = client.get("/api/returns/RMA-1002/articles/")
+
+        assert response.status_code == 403
