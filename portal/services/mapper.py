@@ -49,6 +49,41 @@ def _as_float(value: object, default: float = 0.0) -> float:
     return default
 
 
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+_FINAL_SALE_TAGS = frozenset({"final-sale", "final_sale", "finalsale"})
+
+
+def _derive_category(item: dict[str, Any]) -> str:
+    """Pick the explicit ``category`` field, else the first segment of
+    ``product_type`` (e.g. ``"Apparel > T-Shirts"`` -> ``"apparel"``)."""
+    explicit = _as_str(item.get("category")).strip()
+    if explicit:
+        return explicit.lower()
+    product_type = _as_str(item.get("product_type")).strip()
+    if product_type:
+        return product_type.split(">")[0].strip().lower()
+    return ""
+
+
+def _derive_is_digital(item: dict[str, Any], category: str) -> bool:
+    raw = item.get("digital")
+    if isinstance(raw, bool):
+        return raw
+    return category == "digital"
+
+
+def _derive_is_final_sale(item: dict[str, Any]) -> bool:
+    raw = item.get("final_sale")
+    if isinstance(raw, bool):
+        return raw
+    return any(tag.lower() in _FINAL_SALE_TAGS for tag in _as_str_list(item.get("tags")))
+
+
 def map_order(raw: dict[str, Any]) -> Order:
     """Map a raw order dict (from ``orders_raw.json``) to an :class:`Order`.
 
@@ -78,6 +113,7 @@ def map_order(raw: dict[str, Any]) -> Order:
     articles: list[Article] = []
 
     for item in _as_list_of_dicts(raw.get("articles")):
+        category = _derive_category(item)
         articles.append(
             Article(
                 sku=_as_str(item.get("sku")),
@@ -85,9 +121,9 @@ def map_order(raw: dict[str, Any]) -> Order:
                 quantity=_as_int(item.get("quantity"), default=1),
                 quantity_returned=_as_int(item.get("quantity_returned"), default=0),
                 price=_as_float(item.get("price")),
-                is_digital=False,
-                is_final_sale=False,
-                category="",
+                is_digital=_derive_is_digital(item, category),
+                is_final_sale=_derive_is_final_sale(item),
+                category=category,
             )
         )
 

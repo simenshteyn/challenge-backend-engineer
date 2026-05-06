@@ -71,3 +71,61 @@ class TestMapArticleMissingFields:
         order = map_order(raw_order_1001)
         ebook = order.articles[1]  # EBOOK-RETURNS
         assert ebook.category == "digital"
+
+
+def _wrap(article: dict[str, Any]) -> dict[str, Any]:
+    """Minimal raw order envelope around a single article."""
+    return {
+        "order_number": "TEST",
+        "email": "t@example.com",
+        "zip": "00000",
+        "order_date": "2025-12-01T10:00:00Z",
+        "fulfillments": [],
+        "articles": [article],
+    }
+
+
+class TestMapArticleExplicitFields:
+    """The explicit-field payload shape (production `orders_raw.json`)."""
+
+    def test_explicit_category_wins_over_product_type(self) -> None:
+        order = map_order(
+            _wrap(
+                {
+                    "sku": "X",
+                    "name": "X",
+                    "category": "footwear",
+                    "product_type": "Apparel > T-Shirts",
+                }
+            )
+        )
+        assert order.articles[0].category == "footwear"
+
+    def test_explicit_digital_true(self) -> None:
+        order = map_order(_wrap({"sku": "X", "name": "X", "digital": True}))
+        assert order.articles[0].is_digital is True
+
+    def test_explicit_final_sale_true(self) -> None:
+        order = map_order(_wrap({"sku": "X", "name": "X", "final_sale": True}))
+        assert order.articles[0].is_final_sale is True
+
+    def test_explicit_final_sale_false_overrides_tag(self) -> None:
+        """An explicit `final_sale: false` beats a `final-sale` tag."""
+        order = map_order(
+            _wrap(
+                {
+                    "sku": "X",
+                    "name": "X",
+                    "final_sale": False,
+                    "tags": ["final-sale"],
+                }
+            )
+        )
+        assert order.articles[0].is_final_sale is False
+
+    def test_clearance_tag_alone_is_not_final_sale(self) -> None:
+        """`clearance` tag is pricing, not a return-policy flag."""
+        order = map_order(
+            _wrap({"sku": "X", "name": "X", "tags": ["clearance"]})
+        )
+        assert order.articles[0].is_final_sale is False
