@@ -85,6 +85,9 @@ class ReturnsViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Anti session-fixation; clear any stale return selection too.
+        request.session.cycle_key()
+        request.session.pop("return_selection", None)
         request.session["order_number"] = order.order_number
 
         payload = {

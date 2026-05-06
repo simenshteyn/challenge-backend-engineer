@@ -59,13 +59,22 @@ def _freshen_dates(order: Order) -> Order:
 def find_order(order_number: str, identifier: str) -> Order | None:
     """Look up an order by number and verify the email or zip matches.
 
+    Identifier matching is case-insensitive and tolerant of leading or
+    trailing whitespace — customers reasonably expect ``Alex@Example.com``
+    and ``alex@example.com`` to behave the same.
+
     Returns the mapped :class:`Order` on success, or ``None`` if the order
     is not found or the identifier does not match.
     """
+    normalized = identifier.strip().lower()
+    if not normalized:
+        return None
     for raw in _load_raw_orders():
-        if raw["order_number"] == order_number and (
-            raw["email"] == identifier or raw["zip"] == identifier
-        ):
+        if raw["order_number"] != order_number:
+            continue
+        email = str(raw.get("email", "")).strip().lower()
+        zip_code = str(raw.get("zip", "")).strip().lower()
+        if normalized in (email, zip_code):
             return _freshen_dates(map_order(raw))
     return None
 

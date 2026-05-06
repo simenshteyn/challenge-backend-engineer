@@ -169,3 +169,23 @@ The following are real concerns but are intentionally **not** part of SEC-001 �
 **What I could *not* verify from tests.** Same caveat as FR-001: the Django test client renders templates and asserts response bytes, so the server-side flow is fully covered. Browser-side concerns — CSRF token actually round-tripping, Continue button enabling on Alpine state change, the redirect chain in DevTools — need a manual click-through.
 
 **Final test count: 75 passing** (was 27 / 4 failing at the start of the challenge). End-to-end flow exercisable from the browser: lookup → articles → (filter) → confirm → success.
+
+## OPEN-001 — customer-facing polish
+
+The README's OPEN-001 ("surprise us") slot. Picked three real bugs/quality gaps that surfaced during prior work but were each individually too small to scope as a separate task. Bundled them as a single coherent "polish pass on the auth flow."
+
+**1. Case- and whitespace-tolerant identifier matching.** `find_order("RMA-1001", "Alex@Example.com")` should work — emails are case-insensitive in practice, and customers paste credentials with stray whitespace from password managers and email clients. Same for postal codes that include letters (UK, NL, …). Fix at the auth boundary (`find_order`) rather than per-surface: forms strip whitespace by default, but DRF `CharField` does not, so normalising in the function covers both surfaces with one change. Lowercase + strip on both sides; explicit early return for empty/whitespace-only identifiers preserves the BR-003 contract.
+
+**2. Session ID rotation on successful lookup.** `request.session.cycle_key()` after `find_order` returns a hit, in both `LookupView.post` and the API `lookup` action. Closes the session-fixation surface called out in the SEC-001 audit ("a fresh session ID is issued on auth"). Low impact — the session only stores `order_number` — but it's the textbook hardening for a session-binding auth model and it costs one line.
+
+**3. Stale `return_selection` cleared on re-lookup.** Flagged in the BR-002/FR-002 reviews: if a customer authenticated to RMA-1001, started a return, then re-authenticated (same or different order), the prior selection sat in their session. `ConfirmView.get` recovered gracefully (SKUs didn't resolve against the new order's articles, redirected to articles), but the cleaner behaviour is to drop the stale state at the auth boundary. `request.session.pop("return_selection", None)` on every successful lookup.
+
+**Why these three together.** All three live at the same boundary (`find_order` + the two lookup endpoints), all three are about "the auth flow does the right thing on edge cases", and all three are pinned by tests. Bundling reads as a coherent polish pass; splitting would be churn.
+
+**Tests added (7):**
+- 5 in `TestFindOrderNormalisation`: uppercase email matches, mixed-case email matches, whitespace-padded email matches, whitespace-padded zip matches, whitespace-only identifier returns `None` (preserves the existing empty-identifier contract under the new normalisation).
+- 2 in `TestSessionHygiene`: session key rotates on successful lookup (compares cookie key pre/post auth via `client.session.session_key`), `return_selection` is cleared on re-lookup.
+
+**Things I left in the "out of scope, but observed" list from SEC-001** that I did *not* address here: hardcoded `SECRET_KEY` and `DEBUG = True` (deployment concerns, not application code), the broader weak-auth model (zip + email with no rate limiting — README explicitly documents this as the intended model), DRF's anonymous-CSRF behaviour (low impact, would need a custom auth class), and case-sensitive zip *matching* (the data file is digit-only zips, so the normalisation is defensive but invisible).
+
+**Final test count: 82 passing** across 7 commits (the original suite was 27 passing / 4 failing).

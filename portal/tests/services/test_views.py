@@ -262,3 +262,44 @@ class TestReturnSubmissionFlow:
         )
         assert response.status_code == 302
         assert response.headers["Location"] == "/returns/"
+
+
+class TestSessionHygiene:
+    """OPEN-001: anti-fixation rotation and stale-state cleanup on lookup."""
+
+    def test_session_key_rotates_on_successful_lookup(
+        self, client: Client
+    ) -> None:
+        """Anti session-fixation: a fresh session ID is issued on auth."""
+        # Establish a baseline session by writing a sentinel and saving.
+        baseline = client.session
+        baseline["_baseline"] = True
+        baseline.save()
+        pre_key = baseline.session_key
+
+        response = client.post(
+            "/returns/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+        )
+        assert response.status_code == 302
+        assert client.session.session_key != pre_key
+
+    def test_lookup_clears_stale_return_selection(self, client: Client) -> None:
+        """A second lookup must not inherit an in-progress selection from
+        a prior order — `ConfirmView` would otherwise read it."""
+        client.post(
+            "/returns/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+        )
+        client.post(
+            "/returns/RMA-1001/articles/",
+            {"selected": ["TSHIRT-BLK-M"], "qty_TSHIRT-BLK-M": "1"},
+        )
+        assert "return_selection" in client.session
+
+        # Re-authenticate (same or different order — same lookup endpoint).
+        client.post(
+            "/returns/",
+            {"order_number": "RMA-1001", "identifier": "alex@example.com"},
+        )
+        assert "return_selection" not in client.session

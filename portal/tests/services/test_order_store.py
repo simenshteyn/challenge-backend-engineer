@@ -50,6 +50,33 @@ class TestFindOrder:
         at the function boundary too — an empty string must never match."""
         assert find_order("RMA-1001", "") is None
 
+    def test_whitespace_only_identifier_returns_none(self) -> None:
+        """After normalisation, a whitespace-only string is empty."""
+        assert find_order("RMA-1001", "   ") is None
+
+
+class TestFindOrderNormalisation:
+    """OPEN-001: identifiers should be case-insensitive and whitespace-tolerant.
+    Customers reasonably expect `Alex@Example.com` and `alex@example.com` to
+    match the same record."""
+
+    def test_uppercase_email_matches(self) -> None:
+        order = find_order("RMA-1001", "ALEX@EXAMPLE.COM")
+        assert order is not None
+        assert order.order_number == "RMA-1001"
+
+    def test_mixed_case_email_matches(self) -> None:
+        order = find_order("RMA-1001", "Alex@Example.com")
+        assert order is not None
+
+    def test_whitespace_padded_email_matches(self) -> None:
+        order = find_order("RMA-1001", "  alex@example.com  ")
+        assert order is not None
+
+    def test_whitespace_padded_zip_matches(self) -> None:
+        order = find_order("RMA-1001", "  10115 ")
+        assert order is not None
+
 
 class TestOrdersRawRoundTrip:
     """The production data file must parse and map cleanly through the

@@ -23,6 +23,11 @@ class LookupView(View):
             if order is None:
                 form.add_error(None, "Order not found or credentials do not match.")
             else:
+                # Anti session-fixation: rotate the session ID on successful
+                # auth. Also drop any stale in-progress return selection from
+                # a prior order so it can't leak across logins.
+                request.session.cycle_key()
+                request.session.pop("return_selection", None)
                 request.session["order_number"] = order.order_number
                 return redirect("articles", order_number=order.order_number)
 
