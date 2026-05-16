@@ -2,6 +2,13 @@ MIT License
 
 Copyright (c) 2026 Sergei Simenshtein
 
+This license applies only to modifications and additions made by the copyright
+holder named above. Original challenge materials provided by parcelLab — the
+upstream README brief, base Django scaffolding, sample order data
+(portal/data/orders_raw.json), and HTML templates as originally supplied —
+remain the intellectual property of parcelLab and are included in this
+repository solely for portfolio demonstration purposes.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights

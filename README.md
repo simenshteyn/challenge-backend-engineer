@@ -5,6 +5,10 @@ My implementation of parcelLab's backend take-home challenge.
 - **Scope:** all eight backlog items (BR-001 through OPEN-001), one commit per item
 - **Process:** See [DECISIONS.md](DECISIONS.md) for prioritization and trade-offs; [AI_LOG.md](AI_LOG.md) for AI tooling notes.
 
+## Attribution & License
+
+The original challenge brief (reproduced below), starter Django scaffolding, sample order data (`portal/data/orders_raw.json`), and HTML templates as originally supplied are © parcelLab. All modifications and additions in this repository — including the YAML-driven rules engine, mapper completion, security fix, returns submission flow, additional tests, `DECISIONS.md`, and `AI_LOG.md` — are by Sergei Simenshtein and released under the [MIT License](LICENSE).
+
 ---
 
 # parcelLab — Returns Portal (original brief)
