@@ -1,4 +1,13 @@
-# parcelLab — Returns Portal
+# Solution — parcelLab Backend Take-Home
+
+My implementation of parcelLab's backend take-home challenge.
+
+- **Scope:** all eight backlog items (BR-001 through OPEN-001), one commit per item
+- **Process:** See [DECISIONS.md](DECISIONS.md) for prioritization and trade-offs; [AI_LOG.md](AI_LOG.md) for AI tooling notes.
+
+---
+
+# parcelLab — Returns Portal (original brief)
 
 ## The situation
 

@@ -24,3 +24,6 @@ htmlcov/
 # Local editor/OS artifacts
 .idea/
 .DS_Store
+
+# AI assistant local context
+CLAUDE.md
